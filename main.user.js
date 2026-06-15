@@ -1,10 +1,10 @@
 // ==UserScript==
-// @name         GitHub 中文化插件
+// @name         GitHub 中文化插件 - 增强版
 // @namespace    https://github.com/maboloshi/github-chinese
 // @description  中文化 GitHub 界面的部分菜单及内容。原作者为楼教主(http://www.52cik.com/)。
 // @copyright    2021, 沙漠之子 (https://maboloshi.github.io/Blog)
 // @icon         https://github.githubassets.com/pinned-octocat.svg
-// @version      1.9.4-2026-06-10
+// @version      1.9.4-2026-06-10-enhanced
 // @author       沙漠之子
 // @license      GPL-3.0
 // @match        https://github.com/*
@@ -22,6 +22,8 @@
 // @grant        GM_unregisterMenuCommand
 // @grant        GM_notification
 // @connect      fanyi.iflyrec.com
+// @downloadURL  none
+// @updateURL    none
 // @supportURL   https://github.com/maboloshi/github-chinese/issues
 // ==/UserScript==
 
@@ -268,13 +270,23 @@
         setupMutationObserver();
     }
 
-    /* =========================== Turbo 事件 =========================== */
+    /* =========================== Turbo 事件 + 导航防抖 =========================== */
     /**
-     * 设置Turbo框架事件监听
-     * 处理GitHub的Turbolinks页面切换
+     * 设置导航事件监听（Turbo + popstate）
+     * 防抖 200ms，应对 Turbo SPA 后退/前进时 DOM 与 URL 更新的时序竞争
      */
     function setupTurboEvents() {
-        document.addEventListener('turbo:load', handleTurboLoad);
+        let navTimer = null;
+        function onNavigation() {
+            clearTimeout(navTimer);
+            navTimer = setTimeout(() => {
+                handleUrlChange();
+                handleTurboLoad();
+            }, 200);
+        }
+        window.addEventListener('popstate', onNavigation);      // 浏览器前进/后退
+        document.addEventListener('turbo:load', onNavigation);   // Turbo 导航
+        document.addEventListener('turbo:render', onNavigation); // Turbo 渲染完成
     }
 
     /**
@@ -580,6 +592,7 @@
         if (tag === "RELATIVE-TIME") { // 相对时间元素
             if (node.shadowRoot) {
                 transTimeElement(node.shadowRoot);
+                watchTimeElement(node.shadowRoot);
             }
             return;
         }
@@ -614,6 +627,7 @@
         }
 
         if (tag === "A" || tag === "SPAN") {
+            if (node.dataset.hovercardType) return; // 跳过 hovercard 元素
             transElementAttrs(node, 'title'); // 标题提示
             transElementAttrs(node.dataset, 'visibleText'); // 可见文本
         }
@@ -661,6 +675,17 @@
         if (result !== text) {
             element.textContent = result; // 应用翻译
         }
+    }
+
+    /**
+     * 监视时间元素变化，动态翻译新内容
+     * @param {Element} element - 时间元素的 shadowRoot 或元素本身
+     */
+    function watchTimeElement(element) {
+        new MutationObserver(mutations => {
+            const addedNode = mutations[0]?.addedNodes[0];
+            if (addedNode) transTimeElement(addedNode);
+        }).observe(element, { childList: true });
     }
 
     /**
